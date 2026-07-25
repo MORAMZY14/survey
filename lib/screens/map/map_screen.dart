@@ -252,7 +252,7 @@ class _MapScreenState extends State<MapScreen> {
               mapToolbarEnabled: false,
               zoomControlsEnabled: false,
               padding: EdgeInsets.only(
-                bottom: _selectedPoint == null ? 40 : 170,
+                bottom: _selectedPoint == null ? 40 : 190,
               ),
             ),
             Positioned(
@@ -326,46 +326,66 @@ class _MapScreenState extends State<MapScreen> {
                 child: Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Row(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(Icons.add_location_alt_rounded),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Selected block',
-                                style: TextStyle(fontWeight: FontWeight.w700),
+                        Row(
+                          children: [
+                            Container(
+                              width: 44,
+                              height: 44,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primaryContainer,
+                                borderRadius: BorderRadius.circular(14),
                               ),
-                              Text(
-                                '${_selectedPoint!.latitude.toStringAsFixed(6)}, '
-                                '${_selectedPoint!.longitude.toStringAsFixed(6)}',
-                                style: Theme.of(context).textTheme.bodySmall,
+                              child: const Icon(
+                                Icons.add_location_alt_rounded,
                               ),
-                            ],
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Selected block',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  Text(
+                                    '${_selectedPoint!.latitude.toStringAsFixed(6)}, '
+                                    '${_selectedPoint!.longitude.toStringAsFixed(6)}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () =>
+                                  setState(() => _selectedPoint = null),
+                              tooltip: 'Clear selected block',
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton.icon(
+                            onPressed: _startSurvey,
+                            icon: const Icon(Icons.assignment_add),
+                            label: const Text('Start survey'),
                           ),
-                        ),
-                        IconButton(
-                          onPressed: () =>
-                              setState(() => _selectedPoint = null),
-                          tooltip: 'Clear',
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                        FilledButton(
-                          onPressed: _startSurvey,
-                          child: const Text('Survey'),
                         ),
                       ],
                     ),

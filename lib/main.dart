@@ -4,24 +4,17 @@ import 'package:flutter/material.dart';
 import 'app.dart';
 import 'firebase_options.dart';
 
-
-const String appVersion = 'V1.0.7';
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   Object? firebaseError;
-
   try {
     final options = DefaultFirebaseOptions.currentPlatform;
-
-    // Only show the setup screen if placeholder configuration remains.
     if (options.projectId == 'YOUR_PROJECT_ID') {
       throw StateError(
         'Firebase has not been configured. Run flutterfire configure.',
       );
     }
-
     await Firebase.initializeApp(options: options);
   } catch (error) {
     firebaseError = error;
