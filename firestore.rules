@@ -1,0 +1,107 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDocument() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && userDocument().data.role == 'admin';
+    }
+
+    function centralIsActive(centralId) {
+      return exists(
+          /databases/$(database)/documents/centrals/$(centralId)
+        )
+        && get(
+          /databases/$(database)/documents/centrals/$(centralId)
+        ).data.active == true;
+    }
+
+    match /users/{userId} {
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == 'surveyor';
+
+      allow read: if signedIn()
+        && (request.auth.uid == userId || isAdmin());
+
+      allow update: if signedIn()
+        && (
+          isAdmin()
+          || (
+            request.auth.uid == userId
+            && request.resource.data.role == resource.data.role
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /centrals/{centralId} {
+      allow read: if signedIn();
+
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasAll([
+          'name',
+          'normalizedName',
+          'active',
+          'createdBy',
+          'createdByName',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 2
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.normalizedName is string
+        && request.resource.data.active == true
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow update: if isAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'active',
+          'updatedAt'
+        ])
+        && request.resource.data.active is bool;
+
+      allow delete: if false;
+    }
+
+    match /blockSurveys/{surveyId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.centralId is string
+        && request.resource.data.centralId.size() > 0
+        && request.resource.data.centralName is string
+        && centralIsActive(request.resource.data.centralId)
+        && request.resource.data.centralName
+          == get(
+            /databases/$(database)/documents/centrals/$(request.resource.data.centralId)
+          ).data.name;
+
+      allow update: if signedIn()
+        && (
+          isAdmin()
+          || (
+            resource.data.createdBy == request.auth.uid
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.centralId == resource.data.centralId
+            && request.resource.data.centralName == resource.data.centralName
+          )
+        );
+
+      allow delete: if isAdmin();
+    }
+  }
+}

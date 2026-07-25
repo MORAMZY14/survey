@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "484317688280",
+    "project_id": "fiberization-survey",
+    "storage_bucket": "fiberization-survey.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:484317688280:android:2c1e49dc35ffc182ca42ad",
+        "android_client_info": {
+          "package_name": "com.mmr.block_survey"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrX-xcfrDFB7CVXS4tjDw0cPlAKag5Q2Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
