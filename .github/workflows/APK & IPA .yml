@@ -228,23 +228,6 @@ jobs:
           end
           EOF
 
-      - name: Create GoogleService-Info.plist
-        env:
-          GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
-        run: |
-          if [ -z "$GOOGLE_SERVICE_INFO_PLIST" ]; then
-            echo "❌ GOOGLE_SERVICE_INFO_PLIST secret is missing"
-            exit 1
-          fi
-
-          printf '%s' "$GOOGLE_SERVICE_INFO_PLIST" \
-            > ios/Runner/GoogleService-Info.plist
-
-          /usr/libexec/PlistBuddy \
-            -c "Print :GOOGLE_APP_ID" \
-            ios/Runner/GoogleService-Info.plist >/dev/null
-
-          echo "✅ Firebase iOS configuration created"
 
       - name: Create Google Maps configuration
         env:
