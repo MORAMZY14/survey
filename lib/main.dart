@@ -5,7 +5,7 @@ import 'app.dart';
 import 'firebase_options.dart';
 
 
-const String appVersion = 'V1.0.2';
+const String appVersion = 'V1.0.3';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
