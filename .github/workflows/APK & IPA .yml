@@ -228,23 +228,6 @@ jobs:
           end
           EOF
 
-
-      - name: Create Google Maps configuration
-        env:
-          IOS_MAPS_API_KEY: ${{ secrets.IOS_MAPS_API_KEY }}
-        run: |
-          if [ -z "$IOS_MAPS_API_KEY" ]; then
-            echo "❌ IOS_MAPS_API_KEY secret is missing"
-            exit 1
-          fi
-
-          mkdir -p ios/Flutter
-
-          printf 'GOOGLE_MAPS_API_KEY=%s\n' "$IOS_MAPS_API_KEY" \
-            > ios/Flutter/MapsKeys.xcconfig
-
-          echo "✅ Google Maps iOS configuration created"
-
       - name: Verify xcconfig includes
         run: |
           if ! grep -q "MapsKeys.xcconfig" ios/Flutter/Debug.xcconfig; then
