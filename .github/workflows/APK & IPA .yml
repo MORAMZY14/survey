@@ -160,6 +160,9 @@ jobs:
     runs-on: macos-latest
     needs: update-version
 
+    env:
+      FLUTTER_XCODE_USE_SPM: 0
+
     steps:
       - name: Checkout at new tag
         uses: actions/checkout@v4
@@ -177,13 +180,15 @@ jobs:
         run: flutter pub get
 
       - name: Set FLUTTER_ROOT
-        run: echo "FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))" >> $GITHUB_ENV
+        run: echo "FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))" >> "$GITHUB_ENV"
 
       - name: Force overwrite Podfile
         run: |
           FLUTTER_PATH=$(dirname $(dirname $(which flutter)))
 
           cat > ios/Podfile <<EOF
+          platform :ios, '15.0'
+
           ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
           project 'Runner', {
@@ -198,7 +203,10 @@ jobs:
             raise "FLUTTER_ROOT not set."
           end
 
-          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+          require File.expand_path(
+            File.join('packages', 'flutter_tools', 'bin', 'podhelper'),
+            flutter_root
+          )
 
           flutter_ios_podfile_setup
 
@@ -212,25 +220,69 @@ jobs:
           post_install do |installer|
             installer.pods_project.targets.each do |target|
               flutter_additional_ios_build_settings(target)
+
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+              end
             end
           end
           EOF
 
-          echo "✅ Podfile written:"
-          cat ios/Podfile
-
-      - name: Create GoogleService-Info.plist from Secret
+      - name: Create GoogleService-Info.plist
+        env:
+          GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
         run: |
-          echo "${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}" > ios/Runner/GoogleService-Info.plist
+          if [ -z "$GOOGLE_SERVICE_INFO_PLIST" ]; then
+            echo "❌ GOOGLE_SERVICE_INFO_PLIST secret is missing"
+            exit 1
+          fi
 
-      - name: Clean CocoaPods cache
+          printf '%s' "$GOOGLE_SERVICE_INFO_PLIST" \
+            > ios/Runner/GoogleService-Info.plist
+
+          /usr/libexec/PlistBuddy \
+            -c "Print :GOOGLE_APP_ID" \
+            ios/Runner/GoogleService-Info.plist >/dev/null
+
+          echo "✅ Firebase iOS configuration created"
+
+      - name: Create Google Maps configuration
+        env:
+          IOS_MAPS_API_KEY: ${{ secrets.IOS_MAPS_API_KEY }}
         run: |
-          cd ios
+          if [ -z "$IOS_MAPS_API_KEY" ]; then
+            echo "❌ IOS_MAPS_API_KEY secret is missing"
+            exit 1
+          fi
+
+          mkdir -p ios/Flutter
+
+          printf 'GOOGLE_MAPS_API_KEY=%s\n' "$IOS_MAPS_API_KEY" \
+            > ios/Flutter/MapsKeys.xcconfig
+
+          echo "✅ Google Maps iOS configuration created"
+
+      - name: Verify xcconfig includes
+        run: |
+          if ! grep -q "MapsKeys.xcconfig" ios/Flutter/Debug.xcconfig; then
+            echo "❌ MapsKeys.xcconfig is not included in Debug.xcconfig"
+            exit 1
+          fi
+
+          if ! grep -q "MapsKeys.xcconfig" ios/Flutter/Release.xcconfig; then
+            echo "❌ MapsKeys.xcconfig is not included in Release.xcconfig"
+            exit 1
+          fi
+
+          echo "✅ MapsKeys.xcconfig is included"
+
+      - name: Clean CocoaPods
+        run: |
           pod deintegrate || true
           rm -rf Pods Podfile.lock
-        shell: bash
+        working-directory: ios
 
-      - name: Update CocoaPods repo
+      - name: Update CocoaPods repository
         run: pod repo update
         working-directory: ios
 
@@ -238,10 +290,26 @@ jobs:
         run: pod install
         working-directory: ios
 
-      - name: Build iOS no codesign
+      - name: Build iOS without codesigning
         run: flutter build ios --release --no-codesign
-        env:
-          FLUTTER_XCODE_USE_SPM: 0
+
+      - name: Verify bundled Google Maps key
+        run: |
+          BUNDLED_KEY=$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :GOOGLE_MAPS_API_KEY" \
+              build/ios/iphoneos/Runner.app/Info.plist 2>/dev/null || true
+          )
+
+          case "$BUNDLED_KEY" in
+            ""|\$\(*|YOUR_*)
+              echo "❌ Google Maps API key was not bundled correctly"
+              exit 1
+              ;;
+            *)
+              echo "✅ Google Maps API key is present in Runner.app"
+              ;;
+          esac
 
       - name: Create Payload folder
         run: mkdir Payload
@@ -251,7 +319,7 @@ jobs:
         run: mv Runner.app Payload
         working-directory: build/ios/iphoneos
 
-      - name: Zip IPA
+      - name: Create IPA
         run: zip -qq -r -9 iot.ipa Payload
         working-directory: build/ios/iphoneos
 
