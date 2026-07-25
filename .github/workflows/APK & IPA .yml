@@ -1,0 +1,265 @@
+name: Build APK & IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------
+  # 1. Update version & tag
+  # ---------------------------
+  update-version:
+    name: 🔢 Auto-increment version
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.get_version.outputs.new_version }}
+      new_tag: ${{ steps.get_version.outputs.new_tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read current version from main.dart
+        id: read_version
+        run: |
+          VERSION=$(grep -oP "const String appVersion = '\K[^']+" lib/main.dart)
+
+          if [ -z "$VERSION" ]; then
+            echo "❌ Could not find appVersion in lib/main.dart"
+            exit 1
+          fi
+
+          echo "current_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          VERSION="${{ steps.read_version.outputs.current_version }}"
+
+          # Remove V/v prefix if it exists
+          CLEAN_VERSION=$(echo "$VERSION" | sed 's/^[Vv]//')
+
+          IFS='.' read -r major minor patch <<< "$CLEAN_VERSION"
+
+          if [ -z "$major" ] || [ -z "$minor" ] || [ -z "$patch" ]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: V2.0.0"
+            exit 1
+          fi
+
+          patch=$((patch + 1))
+
+          NEW_VERSION="V${major}.${minor}.${patch}"
+          NEW_TAG="$NEW_VERSION"
+
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+          echo "New version: $NEW_VERSION"
+          echo "New tag: $NEW_TAG"
+
+      - name: Update lib/main.dart with new version
+        run: |
+          sed -i "s/const String appVersion = '.*';/const String appVersion = '${{ steps.bump.outputs.new_version }}';/" lib/main.dart
+
+      - name: Update pubspec.yaml version if exists
+        run: |
+          CLEAN_VERSION=$(echo "${{ steps.bump.outputs.new_version }}" | sed 's/^[Vv]//')
+
+          if [ -f pubspec.yaml ]; then
+            if grep -q "^version:" pubspec.yaml; then
+              sed -i "s/^version:.*/version: ${CLEAN_VERSION}+${{ github.run_number }}/" pubspec.yaml
+              echo "✅ Updated pubspec.yaml version to ${CLEAN_VERSION}+${{ github.run_number }}"
+            else
+              echo "⚠️ No version field found in pubspec.yaml"
+            fi
+          fi
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add lib/main.dart pubspec.yaml || true
+
+          if git diff --cached --quiet; then
+            echo "No version change to commit."
+          else
+            git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }}"
+            git push
+          fi
+
+      - name: Create and push tag
+        run: |
+          git fetch --tags
+
+          if git rev-parse "${{ steps.bump.outputs.new_tag }}" >/dev/null 2>&1; then
+            echo "❌ Tag ${{ steps.bump.outputs.new_tag }} already exists locally."
+            exit 1
+          fi
+
+          if git ls-remote --tags origin "${{ steps.bump.outputs.new_tag }}" | grep "${{ steps.bump.outputs.new_tag }}"; then
+            echo "❌ Tag ${{ steps.bump.outputs.new_tag }} already exists on remote."
+            exit 1
+          fi
+
+          git tag ${{ steps.bump.outputs.new_tag }}
+          git push origin ${{ steps.bump.outputs.new_tag }}
+
+      - name: Set outputs
+        id: get_version
+        run: |
+          echo "new_version=${{ steps.bump.outputs.new_version }}" >> $GITHUB_OUTPUT
+          echo "new_tag=${{ steps.bump.outputs.new_tag }}" >> $GITHUB_OUTPUT
+
+  # ---------------------------
+  # 2. Build Android APK
+  # ---------------------------
+  build-apk:
+    name: 🤖 Android APK
+    runs-on: ubuntu-latest
+    needs: update-version
+
+    steps:
+      - name: Checkout at new tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.update-version.outputs.new_tag }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload APK to Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: build/app/outputs/flutter-apk/app-release.apk
+          tag: ${{ needs.update-version.outputs.new_tag }}
+          overwrite: true
+          body: "Version ${{ needs.update-version.outputs.new_version }} – Android APK + iOS IPA"
+
+  # ---------------------------
+  # 3. Build iOS IPA
+  # ---------------------------
+  build-ios:
+    name: 🍎 iOS IPA
+    runs-on: macos-latest
+    needs: update-version
+
+    steps:
+      - name: Checkout at new tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.update-version.outputs.new_tag }}
+          fetch-depth: 0
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          architecture: x64
+
+      - name: Flutter Pub Get
+        run: flutter pub get
+
+      - name: Set FLUTTER_ROOT
+        run: echo "FLUTTER_ROOT=$(dirname $(dirname $(which flutter)))" >> $GITHUB_ENV
+
+      - name: Force overwrite Podfile
+        run: |
+          FLUTTER_PATH=$(dirname $(dirname $(which flutter)))
+
+          cat > ios/Podfile <<EOF
+          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+          project 'Runner', {
+            'Debug' => :debug,
+            'Profile' => :release,
+            'Release' => :release,
+          }
+
+          flutter_root = '$FLUTTER_PATH'
+
+          if flutter_root.nil?
+            raise "FLUTTER_ROOT not set."
+          end
+
+          require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+          flutter_ios_podfile_setup
+
+          target 'Runner' do
+            use_frameworks!
+            use_modular_headers!
+
+            flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+          end
+
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              flutter_additional_ios_build_settings(target)
+            end
+          end
+          EOF
+
+          echo "✅ Podfile written:"
+          cat ios/Podfile
+
+      - name: Create GoogleService-Info.plist from Secret
+        run: |
+          echo "${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}" > ios/Runner/GoogleService-Info.plist
+
+      - name: Clean CocoaPods cache
+        run: |
+          cd ios
+          pod deintegrate || true
+          rm -rf Pods Podfile.lock
+        shell: bash
+
+      - name: Update CocoaPods repo
+        run: pod repo update
+        working-directory: ios
+
+      - name: Install CocoaPods dependencies
+        run: pod install
+        working-directory: ios
+
+      - name: Build iOS no codesign
+        run: flutter build ios --release --no-codesign
+        env:
+          FLUTTER_XCODE_USE_SPM: 0
+
+      - name: Create Payload folder
+        run: mkdir Payload
+        working-directory: build/ios/iphoneos
+
+      - name: Move app into Payload
+        run: mv Runner.app Payload
+        working-directory: build/ios/iphoneos
+
+      - name: Zip IPA
+        run: zip -qq -r -9 iot.ipa Payload
+        working-directory: build/ios/iphoneos
+
+      - name: Upload IPA to Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: build/ios/iphoneos/iot.ipa
+          tag: ${{ needs.update-version.outputs.new_tag }}
+          overwrite: true
+          body: "Version ${{ needs.update-version.outputs.new_version }} – Android APK + iOS IPA"
