@@ -148,8 +148,8 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
 
-    final created = await Navigator.of(context).push<bool>(
-      MaterialPageRoute<bool>(
+    final result = await Navigator.of(context).push<SurveySubmissionResult>(
+      MaterialPageRoute<SurveySubmissionResult>(
         builder: (_) => NewSurveyScreen(
           location: point,
           locationAccuracy: _currentPosition?.accuracy ?? 0,
@@ -158,11 +158,17 @@ class _MapScreenState extends State<MapScreen> {
       ),
     );
 
-    if (created == true && mounted) {
+    if (result != null && mounted) {
       setState(() => _selectedPoint = null);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Block survey saved.')));
+      final message = switch (result) {
+        SurveySubmissionResult.added =>
+          'Block survey added and approved.',
+        SurveySubmissionResult.pendingApproval =>
+          'Survey submitted for administrator approval.',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
   }
 
@@ -216,10 +222,15 @@ class _MapScreenState extends State<MapScreen> {
       stream: _repository.watchSurveys(),
       builder: (context, snapshot) {
         final allSurveys = snapshot.data ?? const <BlockSurvey>[];
-        _latestSurveys = allSurveys;
+        _latestSurveys = allSurveys
+            .where((survey) => !survey.isRejected)
+            .toList();
+        final approvedSurveys = allSurveys
+            .where((survey) => survey.isApproved)
+            .toList();
         final surveys = widget.centralId == null
-            ? allSurveys
-            : allSurveys
+            ? approvedSurveys
+            : approvedSurveys
                   .where((survey) => survey.centralId == widget.centralId)
                   .toList();
 

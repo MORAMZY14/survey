@@ -6,9 +6,16 @@ import '../../services/survey_repository.dart';
 import 'survey_detail_screen.dart';
 
 class SurveyListScreen extends StatefulWidget {
-  const SurveyListScreen({super.key, this.centralId});
+  const SurveyListScreen({
+    super.key,
+    this.centralId,
+    required this.currentUserId,
+    required this.isAdmin,
+  });
 
   final String? centralId;
+  final String currentUserId;
+  final bool isAdmin;
 
   @override
   State<SurveyListScreen> createState() => _SurveyListScreenState();
@@ -48,6 +55,13 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
 
         final query = _searchController.text.trim().toLowerCase();
         final surveys = snapshot.data!.where((survey) {
+          final visibleToUser =
+              widget.isAdmin ||
+              survey.isApproved ||
+              survey.createdBy == widget.currentUserId;
+          if (!visibleToUser) {
+            return false;
+          }
           if (widget.centralId != null &&
               survey.centralId != widget.centralId) {
             return false;
@@ -164,7 +178,7 @@ class _SurveyCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        _StatusDot(status: survey.status),
+                        _StatusPill(survey: survey),
                       ],
                     ),
                     if (survey.address.isNotEmpty) ...[
@@ -245,24 +259,30 @@ class _SmallMetric extends StatelessWidget {
   }
 }
 
-class _StatusDot extends StatelessWidget {
-  const _StatusDot({required this.status});
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.survey});
 
-  final String status;
+  final BlockSurvey survey;
 
   @override
   Widget build(BuildContext context) {
-    final color = switch (status) {
+    final color = switch (survey.status) {
       'approved' => Colors.green,
       'rejected' => Colors.red,
       _ => Colors.orange,
     };
-    return Tooltip(
-      message: status,
-      child: Container(
-        width: 10,
-        height: 10,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        survey.statusLabel,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w800,
+        ),
       ),
     );
   }

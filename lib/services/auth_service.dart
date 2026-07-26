@@ -57,6 +57,15 @@ class AuthService {
     return _firestore.collection('users').doc(user.uid).snapshots();
   }
 
+  Future<Map<String, dynamic>?> getCurrentUserProfile() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      return null;
+    }
+    final snapshot = await _firestore.collection('users').doc(user.uid).get();
+    return snapshot.data();
+  }
+
   Future<void> _ensureUserDocument(User? user) async {
     if (user == null) {
       return;

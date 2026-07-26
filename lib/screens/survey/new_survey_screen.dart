@@ -9,6 +9,7 @@ import '../../models/block_survey.dart';
 import '../../models/central.dart';
 import '../../models/floor_survey.dart';
 import '../../models/internet_box_plan.dart';
+import '../../services/auth_service.dart';
 import '../../services/central_repository.dart';
 import '../../services/survey_repository.dart';
 import '../../utils/geohash.dart';
@@ -50,6 +51,7 @@ class _NewSurveyScreenState extends State<NewSurveyScreen> {
   final _generalNotesController = TextEditingController();
   final _boxNotesController = TextEditingController();
   final _imagePicker = ImagePicker();
+  final _authService = AuthService();
   final _centralRepository = CentralRepository();
   final _repository = SurveyRepository();
 
@@ -293,45 +295,60 @@ class _NewSurveyScreenState extends State<NewSurveyScreen> {
 
     setState(() => _saving = true);
 
-    final survey = BlockSurvey(
-      id: '',
-      centralId: selectedCentral.id,
-      centralName: selectedCentral.name,
-      blockName: _blockNameController.text.trim(),
-      address: _addressController.text.trim(),
-      latitude: widget.location.latitude,
-      longitude: widget.location.longitude,
-      locationAccuracy: widget.locationAccuracy,
-      geohash: Geohash.encode(
-        widget.location.latitude,
-        widget.location.longitude,
-      ),
-      defaultApartmentsPerFloor: _defaultApartments,
-      startsWithGroundFloor: _startsWithGroundFloor,
-      floors: _floors,
-      blockPhotoUrl: '',
-      blockPhotoStoragePath: '',
-      internetBox: InternetBoxPlan(
-        mountingArea: _mountingArea,
-        notes: _boxNotesController.text.trim(),
-        markerX: _markerX!,
-        markerY: _markerY!,
-      ),
-      generalNotes: _generalNotesController.text.trim(),
-      status: 'submitted',
-      createdBy: user.uid,
-      createdByName:
-          user.displayName ?? user.email?.split('@').first ?? 'Surveyor',
-    );
-
     try {
+      final profile = await _authService.getCurrentUserProfile();
+      final isAdmin = profile?['role'] == 'admin';
+      final creatorRole = isAdmin ? 'admin' : 'surveyor';
+      final creatorName =
+          profile?['name'] as String? ??
+          user.displayName ??
+          user.email?.split('@').first ??
+          (isAdmin ? 'Administrator' : 'Surveyor');
+
+      final survey = BlockSurvey(
+        id: '',
+        centralId: selectedCentral.id,
+        centralName: selectedCentral.name,
+        blockName: _blockNameController.text.trim(),
+        address: _addressController.text.trim(),
+        latitude: widget.location.latitude,
+        longitude: widget.location.longitude,
+        locationAccuracy: widget.locationAccuracy,
+        geohash: Geohash.encode(
+          widget.location.latitude,
+          widget.location.longitude,
+        ),
+        defaultApartmentsPerFloor: _defaultApartments,
+        startsWithGroundFloor: _startsWithGroundFloor,
+        floors: _floors,
+        blockPhotoUrl: '',
+        blockPhotoStoragePath: '',
+        internetBox: InternetBoxPlan(
+          mountingArea: _mountingArea,
+          notes: _boxNotesController.text.trim(),
+          markerX: _markerX!,
+          markerY: _markerY!,
+        ),
+        generalNotes: _generalNotesController.text.trim(),
+        status: isAdmin ? 'approved' : 'pending',
+        createdBy: user.uid,
+        createdByName: creatorName,
+        createdByRole: creatorRole,
+        reviewedBy: isAdmin ? user.uid : '',
+        reviewedByName: isAdmin ? creatorName : '',
+      );
+
       await _repository.createSurvey(
         survey: survey,
         blockPhoto: _blockPhoto!,
         internetBoxPhoto: _internetBoxPhoto,
       );
       if (mounted) {
-        Navigator.of(context).pop(true);
+        Navigator.of(context).pop(
+          isAdmin
+              ? SurveySubmissionResult.added
+              : SurveySubmissionResult.pendingApproval,
+        );
       }
     } catch (error) {
       _showMessage(
@@ -627,7 +644,7 @@ class _NewSurveyScreenState extends State<NewSurveyScreen> {
                       )
                     : const Icon(Icons.cloud_upload_rounded),
                 label: Text(
-                  _saving ? 'Uploading survey…' : 'Save survey to Firebase',
+                  _saving ? 'Uploading survey…' : 'Submit survey',
                 ),
               ),
             ),
@@ -851,3 +868,5 @@ class _SummaryValue extends StatelessWidget {
 }
 
 enum _PhotoTarget { block, internetBox }
+
+enum SurveySubmissionResult { pendingApproval, added }

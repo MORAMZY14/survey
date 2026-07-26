@@ -24,7 +24,13 @@ class BlockSurvey {
     required this.status,
     required this.createdBy,
     required this.createdByName,
+    this.createdByRole = 'surveyor',
+    this.reviewedBy = '',
+    this.reviewedByName = '',
+    this.reviewNote = '',
     this.createdAt,
+    this.updatedAt,
+    this.reviewedAt,
   });
 
   final String id;
@@ -46,7 +52,44 @@ class BlockSurvey {
   final String status;
   final String createdBy;
   final String createdByName;
+  final String createdByRole;
+  final String reviewedBy;
+  final String reviewedByName;
+  final String reviewNote;
   final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final DateTime? reviewedAt;
+
+  bool get isPending => status == 'pending' || status == 'submitted';
+
+  bool get isApproved => status == 'approved';
+
+  bool get isRejected => status == 'rejected';
+
+  bool get wasAddedDirectlyByAdmin =>
+      isApproved &&
+      (createdByRole == 'admin' ||
+          (reviewedBy.isNotEmpty && reviewedBy == createdBy));
+
+  String get statusLabel {
+    if (isPending) {
+      return 'Pending';
+    }
+    if (isApproved) {
+      return 'Approved';
+    }
+    if (isRejected) {
+      return 'Rejected';
+    }
+    return status.isEmpty ? 'Unknown' : status;
+  }
+
+  DateTime? get activityAt {
+    if (!isPending && reviewedAt != null) {
+      return reviewedAt;
+    }
+    return updatedAt ?? createdAt;
+  }
 
   int get totalFloors => floors.length;
 
@@ -77,6 +120,13 @@ class BlockSurvey {
       'status': status,
       'createdBy': createdBy,
       'createdByName': createdByName,
+      'createdByRole': createdByRole,
+      'reviewedBy': reviewedBy,
+      'reviewedByName': reviewedByName,
+      'reviewNote': reviewNote,
+      'reviewedAt': reviewedAt == null
+          ? null
+          : Timestamp.fromDate(reviewedAt!),
     };
   }
 
@@ -93,6 +143,8 @@ class BlockSurvey {
       map['internetBox'] as Map? ?? const {},
     );
     final createdAt = map['createdAt'];
+    final updatedAt = map['updatedAt'];
+    final reviewedAt = map['reviewedAt'];
 
     return BlockSurvey(
       id: document.id,
@@ -115,7 +167,13 @@ class BlockSurvey {
       status: map['status'] as String? ?? 'submitted',
       createdBy: map['createdBy'] as String? ?? '',
       createdByName: map['createdByName'] as String? ?? '',
+      createdByRole: map['createdByRole'] as String? ?? 'surveyor',
+      reviewedBy: map['reviewedBy'] as String? ?? '',
+      reviewedByName: map['reviewedByName'] as String? ?? '',
+      reviewNote: map['reviewNote'] as String? ?? '',
       createdAt: createdAt is Timestamp ? createdAt.toDate() : null,
+      updatedAt: updatedAt is Timestamp ? updatedAt.toDate() : null,
+      reviewedAt: reviewedAt is Timestamp ? reviewedAt.toDate() : null,
     );
   }
 }

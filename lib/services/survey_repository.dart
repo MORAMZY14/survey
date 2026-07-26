@@ -38,6 +38,15 @@ class SurveyRepository {
         );
   }
 
+  Stream<BlockSurvey?> watchSurvey(String surveyId) {
+    return _surveys.doc(surveyId).snapshots().map((document) {
+      if (!document.exists) {
+        return null;
+      }
+      return BlockSurvey.fromFirestore(document);
+    });
+  }
+
   Future<String> createSurvey({
     required BlockSurvey survey,
     required XFile blockPhoto,
@@ -82,7 +91,11 @@ class SurveyRepository {
             )
             .toMap()
         ..['createdAt'] = FieldValue.serverTimestamp()
-        ..['updatedAt'] = FieldValue.serverTimestamp();
+        ..['updatedAt'] = FieldValue.serverTimestamp()
+        ..['reviewedAt'] =
+            survey.wasAddedDirectlyByAdmin
+                ? FieldValue.serverTimestamp()
+                : null;
 
       await document.set(data);
       return document.id;
@@ -98,22 +111,54 @@ class SurveyRepository {
     }
   }
 
+  Future<void> reviewSurvey({
+    required String surveyId,
+    required bool approve,
+    required String reviewerId,
+    required String reviewerName,
+    String reviewNote = '',
+  }) {
+    final reference = _surveys.doc(surveyId);
+    return _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(reference);
+      if (!snapshot.exists) {
+        throw StateError('This survey no longer exists.');
+      }
+
+      final status = snapshot.data()?['status'] as String? ?? 'submitted';
+      final isPending = status == 'pending' || status == 'submitted';
+      if (!isPending) {
+        throw StateError('This survey has already been reviewed.');
+      }
+
+      transaction.update(reference, {
+        'status': approve ? 'approved' : 'rejected',
+        'reviewedBy': reviewerId,
+        'reviewedByName': reviewerName,
+        'reviewNote': reviewNote.trim(),
+        'reviewedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
   Future<_UploadedPhoto> _uploadPhoto({
     required XFile photo,
     required String path,
   }) async {
     final Uint8List bytes = await photo.readAsBytes();
     final reference = _storage.ref(path);
-    await reference.putData(
+    final snapshot = await reference.putData(
       bytes,
       SettableMetadata(
         contentType: photo.mimeType ?? _contentType(photo.path),
         cacheControl: 'private,max-age=3600',
       ),
     );
+    final uploadedReference = snapshot.ref;
     return _UploadedPhoto(
-      reference: reference,
-      downloadUrl: await reference.getDownloadURL(),
+      reference: uploadedReference,
+      downloadUrl: await uploadedReference.getDownloadURL(),
     );
   }
 

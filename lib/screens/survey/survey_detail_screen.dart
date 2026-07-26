@@ -14,6 +14,11 @@ class SurveyDetailScreen extends StatelessWidget {
     final createdAt = survey.createdAt == null
         ? 'Waiting for server timestamp'
         : DateFormat('d MMMM yyyy, h:mm a').format(survey.createdAt!.toLocal());
+    final reviewedAt = survey.reviewedAt == null
+        ? null
+        : DateFormat(
+            'd MMMM yyyy, h:mm a',
+          ).format(survey.reviewedAt!.toLocal());
 
     return Scaffold(
       appBar: AppBar(
@@ -36,10 +41,24 @@ class SurveyDetailScreen extends StatelessWidget {
             icon: Icons.fact_check_outlined,
             child: Column(
               children: [
-                _DetailRow(label: 'Status', value: survey.status),
+                _DetailRow(label: 'Status', value: survey.statusLabel),
                 _DetailRow(label: 'Central', value: survey.centralName),
-                _DetailRow(label: 'Surveyor', value: survey.createdByName),
-                _DetailRow(label: 'Date', value: createdAt),
+                _DetailRow(
+                  label: survey.wasAddedDirectlyByAdmin
+                      ? 'Added by'
+                      : 'Submitted by',
+                  value: survey.createdByName,
+                ),
+                _DetailRow(label: 'Submitted', value: createdAt),
+                if (survey.reviewedByName.isNotEmpty)
+                  _DetailRow(
+                    label: survey.isApproved ? 'Approved by' : 'Reviewed by',
+                    value: survey.reviewedByName,
+                  ),
+                if (reviewedAt != null)
+                  _DetailRow(label: 'Reviewed', value: reviewedAt),
+                if (survey.reviewNote.isNotEmpty)
+                  _DetailRow(label: 'Review note', value: survey.reviewNote),
                 _DetailRow(
                   label: 'Coordinates',
                   value:
