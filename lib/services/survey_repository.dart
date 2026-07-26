@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/block_survey.dart';
+import '../models/survey_deletion_log.dart';
 
 class SurveyRepository {
   SurveyRepository({FirebaseFirestore? firestore, FirebaseStorage? storage})
@@ -16,6 +18,9 @@ class SurveyRepository {
 
   CollectionReference<Map<String, dynamic>> get _surveys =>
       _firestore.collection('blockSurveys');
+
+  CollectionReference<Map<String, dynamic>> get _deletionLogs =>
+      _firestore.collection('surveyDeletionLogs');
 
   Stream<List<BlockSurvey>> watchSurveys() {
     return _surveys
@@ -45,6 +50,17 @@ class SurveyRepository {
       }
       return BlockSurvey.fromFirestore(document);
     });
+  }
+
+  Stream<List<SurveyDeletionLog>> watchDeletionLogs() {
+    return _deletionLogs
+        .orderBy('deletedAt', descending: true)
+        .limit(500)
+        .snapshots()
+        .map(
+          (snapshot) =>
+              snapshot.docs.map(SurveyDeletionLog.fromFirestore).toList(),
+        );
   }
 
   Future<String> createSurvey({
@@ -142,6 +158,50 @@ class SurveyRepository {
     });
   }
 
+  Future<SurveyDeletionResult> deleteSurvey({
+    required BlockSurvey survey,
+    required String deletedBy,
+    required String deletedByName,
+  }) async {
+    final surveyReference = _surveys.doc(survey.id);
+    final deletionLogReference = _deletionLogs.doc(survey.id);
+    final batch = _firestore.batch();
+
+    batch.set(deletionLogReference, {
+      'surveyId': survey.id,
+      'blockName': survey.blockName,
+      'centralId': survey.centralId,
+      'centralName': survey.centralName,
+      'originalCreatedBy': survey.createdBy,
+      'originalCreatedByName': survey.createdByName,
+      'deletedBy': deletedBy,
+      'deletedByName': deletedByName,
+      'deletedAt': FieldValue.serverTimestamp(),
+    });
+    batch.delete(surveyReference);
+    await batch.commit();
+
+    var photosCleanedUp = true;
+    final photoPaths = {
+      survey.blockPhotoStoragePath,
+      survey.internetBox.photoStoragePath,
+    }.where((path) => path.isNotEmpty);
+
+    for (final path in photoPaths) {
+      try {
+        await _storage.ref(path).delete();
+      } on FirebaseException catch (error) {
+        if (error.code != 'object-not-found') {
+          photosCleanedUp = false;
+        }
+      } catch (_) {
+        photosCleanedUp = false;
+      }
+    }
+
+    return SurveyDeletionResult(photosCleanedUp: photosCleanedUp);
+  }
+
   Future<_UploadedPhoto> _uploadPhoto({
     required XFile photo,
     required String path,
@@ -203,4 +263,10 @@ class _UploadedPhoto {
 
   final Reference reference;
   final String downloadUrl;
+}
+
+class SurveyDeletionResult {
+  const SurveyDeletionResult({required this.photosCleanedUp});
+
+  final bool photosCleanedUp;
 }

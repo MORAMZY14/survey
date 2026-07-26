@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/block_survey.dart';
+import '../../models/survey_deletion_log.dart';
 import '../../services/survey_repository.dart';
 import '../survey/survey_detail_screen.dart';
 
@@ -38,69 +39,102 @@ class _NotificationCenterScreenState extends State<NotificationCenterScreen> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final surveys = snapshot.data!.where((survey) {
-          return widget.isAdmin ||
-              survey.isApproved ||
-              survey.createdBy == widget.currentUserId;
-        }).toList()
-          ..sort((first, second) {
-            final firstDate = first.activityAt;
-            final secondDate = second.activityAt;
-            if (firstDate == null && secondDate == null) {
-              return 0;
+        return StreamBuilder<List<SurveyDeletionLog>>(
+          stream: _repository.watchDeletionLogs(),
+          builder: (context, deletionSnapshot) {
+            if (deletionSnapshot.hasError) {
+              return _NotificationError(error: deletionSnapshot.error!);
             }
-            if (firstDate == null) {
-              return 1;
+            if (!deletionSnapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
             }
-            if (secondDate == null) {
-              return -1;
-            }
-            return secondDate.compareTo(firstDate);
-          });
-
-        final pendingCount = snapshot.data!
-            .where((survey) => survey.isPending)
-            .length;
-
-        return RefreshIndicator(
-          onRefresh: () async {
-            await Future<void>.delayed(const Duration(milliseconds: 450));
+            return _buildNotifications(
+              snapshot.data!,
+              deletionSnapshot.data!,
+            );
           },
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
-            children: [
-              _NotificationHeader(
-                isAdmin: widget.isAdmin,
-                pendingCount: pendingCount,
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Recent activity',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (surveys.isEmpty)
-                const _EmptyNotifications()
-              else
-                for (var index = 0; index < surveys.length; index++) ...[
-                  _ActivityCard(
-                    survey: surveys[index],
-                    showReviewActions:
-                        widget.isAdmin && surveys[index].isPending,
-                    reviewing: _reviewingSurveyIds.contains(surveys[index].id),
-                    onApprove: () => _review(surveys[index], approve: true),
-                    onReject: () => _review(surveys[index], approve: false),
-                  ),
-                  if (index != surveys.length - 1)
-                    const SizedBox(height: 10),
-                ],
-            ],
-          ),
         );
       },
+    );
+  }
+
+  Widget _buildNotifications(
+    List<BlockSurvey> allSurveys,
+    List<SurveyDeletionLog> deletionLogs,
+  ) {
+    final surveys = allSurveys.where((survey) {
+      return widget.isAdmin ||
+          survey.isApproved ||
+          survey.createdBy == widget.currentUserId;
+    }).toList();
+    final entries = <_ActivityEntry>[
+      ...surveys.map(_ActivityEntry.survey),
+      ...deletionLogs.map(_ActivityEntry.deletion),
+    ]..sort((first, second) {
+        final firstDate = first.activityAt;
+        final secondDate = second.activityAt;
+        if (firstDate == null && secondDate == null) {
+          return 0;
+        }
+        if (firstDate == null) {
+          return 1;
+        }
+        if (secondDate == null) {
+          return -1;
+        }
+        return secondDate.compareTo(firstDate);
+      });
+    final pendingCount = allSurveys.where((survey) => survey.isPending).length;
+
+    return RefreshIndicator(
+      onRefresh: () async {
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+      },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+        children: [
+          _NotificationHeader(
+            isAdmin: widget.isAdmin,
+            pendingCount: pendingCount,
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Recent activity',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (entries.isEmpty)
+            const _EmptyNotifications()
+          else
+            for (var index = 0; index < entries.length; index++) ...[
+              if (entries[index].survey != null)
+                _ActivityCard(
+                  survey: entries[index].survey!,
+                  isAdmin: widget.isAdmin,
+                  showReviewActions:
+                      widget.isAdmin && entries[index].survey!.isPending,
+                  reviewing: _reviewingSurveyIds.contains(
+                    entries[index].survey!.id,
+                  ),
+                  onApprove: () => _review(
+                    entries[index].survey!,
+                    approve: true,
+                  ),
+                  onReject: () => _review(
+                    entries[index].survey!,
+                    approve: false,
+                  ),
+                )
+              else
+                _DeletionActivityCard(log: entries[index].deletionLog!),
+              if (index != entries.length - 1)
+                const SizedBox(height: 10),
+            ],
+        ],
+      ),
     );
   }
 
@@ -261,9 +295,97 @@ class _NotificationHeader extends StatelessWidget {
                   Text(
                     isAdmin
                         ? 'Review surveyor submissions before they appear on '
-                              'the approved map.'
-                        : 'See when your submissions are approved or rejected.',
+                              'the approved map and follow deletion activity.'
+                        : 'See survey approvals, rejections, and deletions.',
                     style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActivityEntry {
+  const _ActivityEntry.survey(BlockSurvey value)
+    : survey = value,
+      deletionLog = null;
+
+  const _ActivityEntry.deletion(SurveyDeletionLog value)
+    : survey = null,
+      deletionLog = value;
+
+  final BlockSurvey? survey;
+  final SurveyDeletionLog? deletionLog;
+
+  DateTime? get activityAt => survey?.activityAt ?? deletionLog?.deletedAt;
+}
+
+class _DeletionActivityCard extends StatelessWidget {
+  const _DeletionActivityCard({required this.log});
+
+  final SurveyDeletionLog log;
+
+  @override
+  Widget build(BuildContext context) {
+    final deletedAt = log.deletedAt == null
+        ? 'Synchronizing time…'
+        : DateFormat('d MMM yyyy, h:mm a').format(log.deletedAt!.toLocal());
+    final deletedBy = log.deletedByName.trim().isEmpty
+        ? 'An administrator'
+        : log.deletedByName;
+    final originalCreator = log.originalCreatedByName.trim().isEmpty
+        ? 'an unknown user'
+        : log.originalCreatedByName;
+    final color = Theme.of(context).colorScheme.error;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(Icons.delete_forever_outlined, color: color),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Survey deleted',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '$deletedBy deleted ${log.blockName}, originally added '
+                    'by $originalCreator.',
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 4,
+                    children: [
+                      _ActivityMeta(
+                        icon: Icons.hub_outlined,
+                        text: log.centralName,
+                      ),
+                      _ActivityMeta(
+                        icon: Icons.schedule_rounded,
+                        text: deletedAt,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -278,6 +400,7 @@ class _NotificationHeader extends StatelessWidget {
 class _ActivityCard extends StatelessWidget {
   const _ActivityCard({
     required this.survey,
+    required this.isAdmin,
     required this.showReviewActions,
     required this.reviewing,
     required this.onApprove,
@@ -285,6 +408,7 @@ class _ActivityCard extends StatelessWidget {
   });
 
   final BlockSurvey survey;
+  final bool isAdmin;
   final bool showReviewActions;
   final bool reviewing;
   final VoidCallback onApprove;
@@ -305,7 +429,10 @@ class _ActivityCard extends StatelessWidget {
       child: InkWell(
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => SurveyDetailScreen(survey: survey),
+            builder: (_) => SurveyDetailScreen(
+              survey: survey,
+              isAdmin: isAdmin,
+            ),
           ),
         ),
         child: Padding(
@@ -510,7 +637,8 @@ class _EmptyNotifications extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             const Text(
-              'Survey submissions and approval decisions will appear here.',
+              'Survey submissions, approval decisions, and deletions will '
+              'appear here.',
               textAlign: TextAlign.center,
             ),
           ],

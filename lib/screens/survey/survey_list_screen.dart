@@ -105,8 +105,10 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
                         itemCount: surveys.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) =>
-                            _SurveyCard(survey: surveys[index]),
+                        itemBuilder: (context, index) => _SurveyCard(
+                          survey: surveys[index],
+                          isAdmin: widget.isAdmin,
+                        ),
                       ),
                     ),
             ),
@@ -118,9 +120,10 @@ class _SurveyListScreenState extends State<SurveyListScreen> {
 }
 
 class _SurveyCard extends StatelessWidget {
-  const _SurveyCard({required this.survey});
+  const _SurveyCard({required this.survey, required this.isAdmin});
 
   final BlockSurvey survey;
+  final bool isAdmin;
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +136,10 @@ class _SurveyCard extends StatelessWidget {
       child: InkWell(
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => SurveyDetailScreen(survey: survey),
+            builder: (_) => SurveyDetailScreen(
+              survey: survey,
+              isAdmin: isAdmin,
+            ),
           ),
         ),
         child: Padding(

@@ -1,13 +1,32 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../models/block_survey.dart';
+import '../../services/auth_service.dart';
+import '../../services/survey_repository.dart';
 
-class SurveyDetailScreen extends StatelessWidget {
-  const SurveyDetailScreen({super.key, required this.survey});
+class SurveyDetailScreen extends StatefulWidget {
+  const SurveyDetailScreen({
+    super.key,
+    required this.survey,
+    this.isAdmin = false,
+  });
 
   final BlockSurvey survey;
+  final bool isAdmin;
+
+  @override
+  State<SurveyDetailScreen> createState() => _SurveyDetailScreenState();
+}
+
+class _SurveyDetailScreenState extends State<SurveyDetailScreen> {
+  final _repository = SurveyRepository();
+  final _authService = AuthService();
+  bool _deleting = false;
+
+  BlockSurvey get survey => widget.survey;
 
   @override
   Widget build(BuildContext context) {
@@ -24,6 +43,17 @@ class SurveyDetailScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(survey.blockName),
         actions: [
+          if (widget.isAdmin)
+            IconButton(
+              onPressed: _deleting ? null : _deleteSurvey,
+              tooltip: 'Delete survey',
+              icon: _deleting
+                  ? const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline_rounded),
+            ),
           IconButton(
             onPressed: () => _copyCoordinates(context),
             tooltip: 'Copy coordinates',
@@ -168,6 +198,86 @@ class SurveyDetailScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _deleteSurvey() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.delete_forever_outlined),
+        title: const Text('Delete this survey?'),
+        content: Text(
+          '${survey.blockName} and its uploaded photos will be permanently '
+          'removed. A deletion record will remain in Updates.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            child: const Text('Delete permanently'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() => _deleting = true);
+    var removed = false;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        throw StateError('You must be signed in to delete a survey.');
+      }
+      final profile = await _authService.getCurrentUserProfile();
+      final administratorName =
+          profile?['name'] as String? ??
+          user.displayName ??
+          user.email?.split('@').first ??
+          'Administrator';
+
+      final result = await _repository.deleteSurvey(
+        survey: survey,
+        deletedBy: user.uid,
+        deletedByName: administratorName,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      removed = true;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            result.photosCleanedUp
+                ? '${survey.blockName} and its photos were deleted.'
+                : '${survey.blockName} was deleted, but one or more photo '
+                      'files could not be cleaned up.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not delete the survey.\n$error')),
+      );
+    } finally {
+      if (mounted && !removed) {
+        setState(() => _deleting = false);
+      }
+    }
   }
 
   Future<void> _copyCoordinates(BuildContext context) async {

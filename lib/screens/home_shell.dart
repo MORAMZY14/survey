@@ -80,7 +80,10 @@ class _HomeShellState extends State<HomeShell> {
           body: IndexedStack(
             index: _index,
             children: [
-              MapScreen(centralId: _selectedCentralId),
+              MapScreen(
+                centralId: _selectedCentralId,
+                isAdmin: isAdmin,
+              ),
               SurveyListScreen(
                 centralId: _selectedCentralId,
                 currentUserId: currentUserId,

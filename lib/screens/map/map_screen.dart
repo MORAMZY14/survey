@@ -9,9 +9,14 @@ import '../survey/new_survey_screen.dart';
 import '../survey/survey_detail_screen.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key, this.centralId});
+  const MapScreen({
+    super.key,
+    this.centralId,
+    required this.isAdmin,
+  });
 
   final String? centralId;
+  final bool isAdmin;
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -130,7 +135,10 @@ class _MapScreenState extends State<MapScreen> {
       if (action == _NearbyAction.openExisting) {
         await Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => SurveyDetailScreen(survey: nearby!),
+            builder: (_) => SurveyDetailScreen(
+              survey: nearby!,
+              isAdmin: widget.isAdmin,
+            ),
           ),
         );
         return;
@@ -191,7 +199,10 @@ class _MapScreenState extends State<MapScreen> {
               '${survey.totalApartments} apartments',
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => SurveyDetailScreen(survey: survey),
+              builder: (_) => SurveyDetailScreen(
+                survey: survey,
+                isAdmin: widget.isAdmin,
+              ),
             ),
           ),
         ),
